@@ -11,12 +11,13 @@ use devmgr::Devcontainer;
 
 /// Small utility for managing devcontainers.
 #[derive(FromArgs)]
+#[argh(help_triggers("-h", "--help"))]
 struct Args {
     #[argh(subcommand)]
     command: Command,
-    /// show less output.
-    #[argh(switch, short = 'q')]
-    quiet: bool,
+    /// show verbose output.
+    #[argh(switch, short = 'v')]
+    verbose: bool,
 }
 
 #[derive(FromArgs)]
@@ -75,24 +76,36 @@ async fn main() -> Result<(), Error> {
         Command::List(_) => {
             let devcontainers = Devcontainer::iter(&docker).await?;
 
-            if args.quiet {
+            if args.verbose {
                 for devcontainer in devcontainers {
-                    println!("{devcontainer}");
+                    println!("{devcontainer:#}");
                 }
             } else {
                 for devcontainer in devcontainers {
-                    println!("{devcontainer:#}");
+                    println!("{devcontainer}");
                 }
             }
         }
         Command::Exec(exec_args) => {
             let devcontainer = from_path_or_error(&docker, &exec_args.path).await?;
+            if args.verbose {
+                eprintln!("Found: {devcontainer:#}");
+            }
             let command: Vec<&str> = exec_args.command.iter().map(String::as_str).collect();
             devcontainer.exec(command).await?;
+            if args.verbose {
+                eprintln!("Exited devcontainer at {}", devcontainer.path.display());
+            }
         }
         Command::Attach(attach_args) => {
             let devcontainer = from_path_or_error(&docker, &attach_args.path).await?;
+            if args.verbose {
+                eprintln!("Found: {devcontainer:#}");
+            }
             devcontainer.attach().await?;
+            if args.verbose {
+                eprintln!("Exited devcontainer at {}", devcontainer.path.display());
+            }
         }
     }
 
