@@ -1,10 +1,16 @@
 #![warn(clippy::all, clippy::nursery, clippy::pedantic, clippy::cargo)]
 
-use devctl::add;
+use bollard::{Docker, errors::Error};
+use devctl::Devcontainer;
 
-fn main() {
-    let left = 2;
-    let right = 2;
-    let result = add(left, right);
-    println!("The sum of {left} and {right} is {result}");
+#[tokio::main]
+async fn main() -> Result<(), Error> {
+    let docker = Docker::connect_with_local_defaults()?;
+    let devcontainers = Devcontainer::iter(&docker).await?;
+
+    for devcontainer in devcontainers {
+        println!("{devcontainer:#}");
+    }
+
+    Ok(())
 }
