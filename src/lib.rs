@@ -127,14 +127,19 @@ impl<'a> Devcontainer<'a> {
     /// Attach to the devcontainer using `docker exec`.
     // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
     pub async fn attach(&self) -> Result<(), Error> {
+        self.exec(vec!["bash"]).await
+    }
+
+    /// Execute a command in the devcontainer using `docker exec`.
+    pub async fn exec(&self, cmd: Vec<&str>) -> Result<(), Error> {
         let option = CreateExecOptions {
+            cmd: Some(cmd),
             attach_stderr: Some(true),
             attach_stdout: Some(true),
             attach_stdin: Some(true),
             tty: Some(true),
-            cmd: Some(vec!["bash".to_string()]),
-            user: Some(self.user.clone()),
-            working_dir: Some(self.workspace.clone()),
+            user: Some(&self.user),
+            working_dir: Some(&self.workspace),
             // detach_keys: None,
             // env: None,
             // privileged: Some(false),
