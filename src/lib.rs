@@ -209,15 +209,7 @@ impl<'a> fmt::Display for Devcontainer<'a> {
             )
         } else {
             // Compact display
-            write!(
-                f,
-                "Devcontainer {} (Name: {}, Path: {}, Workspace: {}, User: {})",
-                self.id,
-                self.name,
-                self.path.display(),
-                self.workspace,
-                self.user
-            )
+            write!(f, "Devcontainer {} ({})", self.id, self.path.display())
         }
     }
 }
