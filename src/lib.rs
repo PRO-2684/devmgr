@@ -9,7 +9,12 @@ use bollard::{
     query_parameters::{ListContainersOptions, ListContainersOptionsBuilder},
 };
 use serde::Deserialize;
-use std::{collections::HashMap, fmt, path::PathBuf};
+use std::{
+    collections::HashMap,
+    fmt,
+    io::{Error as IoError, ErrorKind as IoErrorKind},
+    path::PathBuf,
+};
 
 /// A devcontainer.
 #[derive(Debug, Clone)]
@@ -40,6 +45,35 @@ impl Devcontainer {
             .filter_map(Self::from_container_summary);
 
         Ok(it)
+    }
+
+    /// Try to find a devcontainer at the given path.
+    pub async fn from_path(docker: &Docker, path: &PathBuf) -> Result<Option<Self>, Error> {
+        let path = path.canonicalize()?;
+        let path_str = path.to_str().ok_or_else(|| Error::IOError {
+            err: IoError::new(
+                IoErrorKind::InvalidData,
+                "Path contains invalid UTF-8 characters",
+            ),
+        })?;
+        let filters = HashMap::from([(
+            "label",
+            vec![format!("devcontainer.local_folder={path_str}")],
+        )]);
+        let option = ListContainersOptionsBuilder::default()
+            .filters(&filters)
+            .build();
+        let containers = docker.list_containers(Some(option)).await?;
+
+        for container in containers {
+            if let Some(devcontainer) = Self::from_container_summary(container) {
+                if devcontainer.path == path {
+                    return Ok(Some(devcontainer));
+                }
+            }
+        }
+
+        Ok(None)
     }
 
     /// Create a [`Devcontainer`] from given [`ContainerSummary`].
