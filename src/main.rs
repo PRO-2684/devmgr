@@ -7,7 +7,7 @@ use std::{
 
 use argh::FromArgs;
 use bollard::{Docker, errors::Error};
-use devctl::Devcontainer;
+use devmgr::Devcontainer;
 
 /// Small utility for managing devcontainers.
 #[derive(FromArgs)]
