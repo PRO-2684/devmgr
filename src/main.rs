@@ -2,7 +2,7 @@
 
 use std::{
     io::{Error as IoError, ErrorKind},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
 use argh::FromArgs;
@@ -56,7 +56,7 @@ struct AttachArgs {
 
 async fn from_path_or_error<'a>(
     docker: &'a Docker,
-    path: &'a PathBuf,
+    path: &'a Path,
 ) -> Result<Devcontainer<'a>, Error> {
     Devcontainer::from_path(docker, path)
         .await?

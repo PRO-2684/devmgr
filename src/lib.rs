@@ -16,7 +16,7 @@ use std::{
     env::var as env_var,
     fmt,
     io::{Error as IoError, ErrorKind as IoErrorKind, Read, Write, stdout},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use termion::{async_stdin, raw::IntoRawMode, terminal_size};
 use tokio::{
@@ -46,6 +46,10 @@ impl<'a> Devcontainer<'a> {
     // Creation
 
     /// Iterate over all running devcontainers on the machine.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the docker client fails to list containers.
     pub async fn iter(docker: &'a Docker) -> Result<impl Iterator<Item = Self> + 'a, Error> {
         let filters = HashMap::from([("label", vec!["devcontainer.local_folder"])]);
         let option = ListContainersOptionsBuilder::default()
@@ -61,7 +65,11 @@ impl<'a> Devcontainer<'a> {
     }
 
     /// Try to find a devcontainer at the given path.
-    pub async fn from_path(docker: &'a Docker, path: &PathBuf) -> Result<Option<Self>, Error> {
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the docker client fails to list containers or if the path is invalid.
+    pub async fn from_path(docker: &'a Docker, path: &Path) -> Result<Option<Self>, Error> {
         let path = path.canonicalize()?;
         let path_str = path.to_str().ok_or_else(|| Error::IOError {
             err: IoError::new(
@@ -79,10 +87,10 @@ impl<'a> Devcontainer<'a> {
         let containers = docker.list_containers(Some(option)).await?;
 
         for container in containers {
-            if let Some(devcontainer) = Self::from_container_summary(docker, container) {
-                if devcontainer.path == path {
-                    return Ok(Some(devcontainer));
-                }
+            if let Some(devcontainer) = Self::from_container_summary(docker, container)
+                && devcontainer.path == path
+            {
+                return Ok(Some(devcontainer));
             }
         }
 
@@ -90,9 +98,14 @@ impl<'a> Devcontainer<'a> {
     }
 
     /// Create a [`Devcontainer`] from given [`ContainerSummary`].
+    #[must_use]
     pub fn from_container_summary(docker: &'a Docker, container: ContainerSummary) -> Option<Self> {
         let id = container.id?;
-        let name = container.names?.get(0)?.trim_start_matches('/').to_string();
+        let name = container
+            .names?
+            .first()?
+            .trim_start_matches('/')
+            .to_string();
 
         let labels = container.labels?;
         let path = labels.get("devcontainer.local_folder")?;
@@ -125,13 +138,21 @@ impl<'a> Devcontainer<'a> {
 
     // Actions
 
-    /// Attach to the devcontainer using `docker exec`.
     // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
+    /// Attach to the devcontainer using `docker exec`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
     pub async fn attach(&self) -> Result<(), Error> {
         self.exec(vec!["bash"]).await
     }
 
     /// Execute a command in the devcontainer using `docker exec`.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
     pub async fn exec(&self, cmd: Vec<&str>) -> Result<(), Error> {
         let term = env_var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
         let term = format!("TERM={term}");
@@ -177,15 +198,14 @@ impl<'a> Devcontainer<'a> {
             .resize_exec(
                 &exec_id,
                 ResizeExecOptionsBuilder::default()
-                    .h(tty_size.1 as i32)
-                    .w(tty_size.0 as i32)
+                    .h(i32::from(tty_size.1))
+                    .w(i32::from(tty_size.0))
                     .build(),
             )
             .await?;
 
         // set stdout in raw mode so we can do tty stuff
-        let stdout = stdout();
-        let mut stdout = stdout.lock().into_raw_mode()?;
+        let mut stdout = stdout().into_raw_mode()?;
 
         // pipe docker exec output into stdout
         while let Some(Ok(output)) = output.next().await {
@@ -197,7 +217,7 @@ impl<'a> Devcontainer<'a> {
     }
 }
 
-impl<'a> fmt::Display for Devcontainer<'a> {
+impl fmt::Display for Devcontainer<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             // Detailed display with newlines and indentation
