@@ -7,7 +7,7 @@ description = "Small utility for managing devcontainers."
 keywords = []
 categories = []
 include = ["src", "README.md", "LICENSE"]
-repository = "https://github.com/PRO-2684/devctl"
+repository = "https://github.com/PRO-2684/devmgr"
 license = "MIT"
 authors = ["PRO-2684"]
 
@@ -21,7 +21,7 @@ termion = "4.0.6"
 tokio = { version = "1.52.1", features = ["macros", "rt-multi-thread"] }
 
 [[bin]]
-name = "devctl"
+name = "devmgr"
 required-features = ["cli"]
 
 [features]

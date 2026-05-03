@@ -1,4 +1,4 @@
-description = "\u001b[1;36mdevctl\u001b[22;39m: Small utility for managing devcontainers."
+description = "\u001b[1;36mdevmgr\u001b[22;39m: Small utility for managing devcontainers."
 
 [[recipes]]
 names = ["build", "b"]
