@@ -13,6 +13,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
+    env::var as env_var,
     fmt,
     io::{Error as IoError, ErrorKind as IoErrorKind, Read, Write, stdout},
     path::PathBuf,
@@ -132,6 +133,8 @@ impl<'a> Devcontainer<'a> {
 
     /// Execute a command in the devcontainer using `docker exec`.
     pub async fn exec(&self, cmd: Vec<&str>) -> Result<(), Error> {
+        let term = env_var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
+        let term = format!("TERM={term}");
         let option = CreateExecOptions {
             cmd: Some(cmd),
             attach_stderr: Some(true),
@@ -140,8 +143,8 @@ impl<'a> Devcontainer<'a> {
             tty: Some(true),
             user: Some(&self.user),
             working_dir: Some(&self.workspace),
+            env: Some(vec![&term]),
             // detach_keys: None,
-            // env: None,
             // privileged: Some(false),
             ..Default::default()
         };
