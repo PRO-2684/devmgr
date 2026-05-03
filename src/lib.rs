@@ -26,7 +26,7 @@ use tokio::{
 
 /// A devcontainer.
 #[derive(Debug, Clone)]
-pub struct Devcontainer {
+pub struct Devcontainer<'a> {
     /// The id of the devcontainer.
     pub id: String,
     /// The name of the devcontainer.
@@ -37,13 +37,15 @@ pub struct Devcontainer {
     pub workspace: String,
     /// The user to use in the devcontainer.
     pub user: String,
+    /// The docker client.
+    pub docker: &'a Docker,
 }
 
-impl Devcontainer {
+impl<'a> Devcontainer<'a> {
     // Creation
 
     /// Iterate over all running devcontainers on the machine.
-    pub async fn iter(docker: &Docker) -> Result<impl Iterator<Item = Self> + '_, Error> {
+    pub async fn iter(docker: &'a Docker) -> Result<impl Iterator<Item = Self> + 'a, Error> {
         let filters = HashMap::from([("label", vec!["devcontainer.local_folder"])]);
         let option = ListContainersOptionsBuilder::default()
             .filters(&filters)
@@ -52,13 +54,13 @@ impl Devcontainer {
 
         let it = containers
             .into_iter()
-            .filter_map(Self::from_container_summary);
+            .filter_map(|container| Self::from_container_summary(docker, container));
 
         Ok(it)
     }
 
     /// Try to find a devcontainer at the given path.
-    pub async fn from_path(docker: &Docker, path: &PathBuf) -> Result<Option<Self>, Error> {
+    pub async fn from_path(docker: &'a Docker, path: &PathBuf) -> Result<Option<Self>, Error> {
         let path = path.canonicalize()?;
         let path_str = path.to_str().ok_or_else(|| Error::IOError {
             err: IoError::new(
@@ -76,7 +78,7 @@ impl Devcontainer {
         let containers = docker.list_containers(Some(option)).await?;
 
         for container in containers {
-            if let Some(devcontainer) = Self::from_container_summary(container) {
+            if let Some(devcontainer) = Self::from_container_summary(docker, container) {
                 if devcontainer.path == path {
                     return Ok(Some(devcontainer));
                 }
@@ -87,7 +89,7 @@ impl Devcontainer {
     }
 
     /// Create a [`Devcontainer`] from given [`ContainerSummary`].
-    pub fn from_container_summary(container: ContainerSummary) -> Option<Self> {
+    pub fn from_container_summary(docker: &'a Docker, container: ContainerSummary) -> Option<Self> {
         let id = container.id?;
         let name = container.names?.get(0)?.trim_start_matches('/').to_string();
 
@@ -116,6 +118,7 @@ impl Devcontainer {
             path,
             workspace,
             user,
+            docker,
         })
     }
 
@@ -123,7 +126,7 @@ impl Devcontainer {
 
     /// Attach to the devcontainer using `docker exec`.
     // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
-    pub async fn attach(&self, docker: &Docker) -> Result<(), Error> {
+    pub async fn attach(&self) -> Result<(), Error> {
         let option = CreateExecOptions {
             attach_stderr: Some(true),
             attach_stdout: Some(true),
@@ -137,11 +140,11 @@ impl Devcontainer {
             // privileged: Some(false),
             ..Default::default()
         };
-        let exec_id = docker.create_exec(&self.id, option).await?.id;
+        let exec_id = self.docker.create_exec(&self.id, option).await?.id;
         let StartExecResults::Attached {
             mut output,
             mut input,
-        } = docker.start_exec(&exec_id, None).await?
+        } = self.docker.start_exec(&exec_id, None).await?
         else {
             // TODO: Error?
             return Ok(());
@@ -162,7 +165,7 @@ impl Devcontainer {
 
         // resize the docker exec tty to match the terminal size
         let tty_size = terminal_size()?;
-        docker
+        self.docker
             .resize_exec(
                 &exec_id,
                 ResizeExecOptionsBuilder::default()
@@ -186,7 +189,7 @@ impl Devcontainer {
     }
 }
 
-impl fmt::Display for Devcontainer {
+impl<'a> fmt::Display for Devcontainer<'a> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if f.alternate() {
             // Detailed display with newlines and indentation
