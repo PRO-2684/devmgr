@@ -5,15 +5,23 @@
 use bollard::{
     Docker,
     errors::Error,
+    exec::{CreateExecOptions, StartExecResults},
     models::ContainerSummary,
-    query_parameters::{ListContainersOptions, ListContainersOptionsBuilder},
+    query_parameters::{ListContainersOptionsBuilder, ResizeExecOptionsBuilder},
 };
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
     fmt,
-    io::{Error as IoError, ErrorKind as IoErrorKind},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Write, stdout},
     path::PathBuf,
+};
+use termion::{async_stdin, raw::IntoRawMode, terminal_size};
+use tokio::{
+    io::AsyncWriteExt,
+    spawn,
+    time::{Duration, sleep},
 };
 
 /// A devcontainer.
@@ -32,6 +40,8 @@ pub struct Devcontainer {
 }
 
 impl Devcontainer {
+    // Creation
+
     /// Iterate over all running devcontainers on the machine.
     pub async fn iter(docker: &Docker) -> Result<impl Iterator<Item = Self> + '_, Error> {
         let filters = HashMap::from([("label", vec!["devcontainer.local_folder"])]);
@@ -107,6 +117,72 @@ impl Devcontainer {
             workspace,
             user,
         })
+    }
+
+    // Actions
+
+    /// Attach to the devcontainer using `docker exec`.
+    // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
+    pub async fn attach(&self, docker: &Docker) -> Result<(), Error> {
+        let option = CreateExecOptions {
+            attach_stderr: Some(true),
+            attach_stdout: Some(true),
+            attach_stdin: Some(true),
+            tty: Some(true),
+            cmd: Some(vec!["bash".to_string()]),
+            user: Some(self.user.clone()),
+            working_dir: Some(self.workspace.clone()),
+            // detach_keys: None,
+            // env: None,
+            // privileged: Some(false),
+            ..Default::default()
+        };
+        let exec_id = docker.create_exec(&self.id, option).await?.id;
+        let StartExecResults::Attached {
+            mut output,
+            mut input,
+        } = docker.start_exec(&exec_id, None).await?
+        else {
+            // TODO: Error?
+            return Ok(());
+        };
+
+        // pipe stdin into the docker exec stream input
+        spawn(async move {
+            #[allow(clippy::unbuffered_bytes)]
+            let mut stdin = async_stdin().bytes();
+            loop {
+                if let Some(Ok(byte)) = stdin.next() {
+                    input.write_all(&[byte]).await.ok();
+                } else {
+                    sleep(Duration::from_nanos(10)).await;
+                }
+            }
+        });
+
+        // resize the docker exec tty to match the terminal size
+        let tty_size = terminal_size()?;
+        docker
+            .resize_exec(
+                &exec_id,
+                ResizeExecOptionsBuilder::default()
+                    .h(tty_size.1 as i32)
+                    .w(tty_size.0 as i32)
+                    .build(),
+            )
+            .await?;
+
+        // set stdout in raw mode so we can do tty stuff
+        let stdout = stdout();
+        let mut stdout = stdout.lock().into_raw_mode()?;
+
+        // pipe docker exec output into stdout
+        while let Some(Ok(output)) = output.next().await {
+            stdout.write_all(output.into_bytes().as_ref())?;
+            stdout.flush()?;
+        }
+
+        Ok(())
     }
 }
 
