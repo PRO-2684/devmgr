@@ -13,6 +13,33 @@
 
 Small utility for managing devcontainers.
 
+## 🪄 Features
+
+- ⚡ Tiny and fast: Less than 2MB binary size. Even faster than `docker` CLI.
+    <details><summary>Benchmark details (commit c858e57)</summary>
+
+    - Command: `hyperfine --warmup 3 'devmgr exec -- ls -la' 'docker exec -e TERM="${TERM:-xterm-256color}" -u <user> -w <workspace> -t <container> ls -la' --show-output`
+    - Result (output truncated):
+        ```
+        Benchmark 1: devmgr exec -- ls -la
+          Time (mean ± σ):      46.6 ms ±   3.1 ms    [User: 1.6 ms, System: 1.5 ms]
+          Range (min … max):    39.9 ms …  53.7 ms    59 runs
+
+
+        Benchmark 2: docker exec -e TERM="${TERM:-xterm-256color}" -u vscode -w /workspaces/prior -t thirsty_pasteur ls -la
+          Time (mean ± σ):      74.8 ms ±   3.5 ms    [User: 18.6 ms, System: 20.9 ms]
+          Range (min … max):    68.6 ms …  82.9 ms    40 runs
+
+        Summary
+          devmgr exec -- ls -la ran
+            1.61 ± 0.13 times faster than docker exec -e TERM="${TERM:-xterm-256color}" -u vscode -w /workspaces/prior -t thirsty_pasteur ls -la
+        ```
+    - This is an "unfair" comparison, since `devmgr` have to resolve user, workspace, container name and determine terminal size, but it still outperforms `docker` CLI.
+    - We need to `--show_output`, since `devmgr` allocates TTY.
+
+    </details>
+- TODO
+
 ## 📥 Installation
 
 ### Using [`binstall`](https://github.com/cargo-bins/cargo-binstall)
