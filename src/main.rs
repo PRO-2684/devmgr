@@ -68,7 +68,7 @@ async fn from_path_or_error<'a>(
         })
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<(), Error> {
     let args: Args = argh::from_env();
     let docker = Docker::connect_with_local_defaults()?;
