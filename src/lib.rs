@@ -151,8 +151,8 @@ impl<'a> Devcontainer<'a> {
     /// # Errors
     ///
     /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
-    pub async fn attach(&self) -> Result<(), Error> {
-        self.exec(vec!["bash"]).await
+    pub async fn attach(&self, shell: &str) -> Result<(), Error> {
+        self.exec(vec![shell], shell).await
     }
 
     /// Execute a command in the devcontainer using `docker exec`.
@@ -160,9 +160,10 @@ impl<'a> Devcontainer<'a> {
     /// # Errors
     ///
     /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
-    pub async fn exec(&self, cmd: Vec<&str>) -> Result<(), Error> {
+    pub async fn exec(&self, cmd: Vec<&str>, shell: &str) -> Result<(), Error> {
         let term = env_var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
         let term = format!("TERM={term}");
+        let shell = format!("SHELL={shell}");
         let option = CreateExecOptions {
             cmd: Some(cmd),
             attach_stderr: Some(true),
@@ -171,7 +172,7 @@ impl<'a> Devcontainer<'a> {
             tty: Some(true),
             user: Some(&self.user),
             working_dir: Some(&self.workspace),
-            env: Some(vec![&term]),
+            env: Some(vec![&term, &shell]),
             // detach_keys: None,
             // privileged: Some(false),
             ..Default::default()

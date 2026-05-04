@@ -31,7 +31,7 @@ enum Command {
 
 /// List all devcontainers.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "ls")]
+#[argh(subcommand, name = "ls", help_triggers("-h", "--help"))]
 struct ListArgs {
     /// show all devcontainers, including those that are not running.
     #[argh(switch, short = 'a')]
@@ -40,11 +40,14 @@ struct ListArgs {
 
 /// Execute a command in a devcontainer.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "exec")]
+#[argh(subcommand, name = "exec", help_triggers("-h", "--help"))]
 struct ExecArgs {
     /// path to the devcontainer local folder.
     #[argh(option, short = 'p', default = "PathBuf::from(\".\")")]
     path: PathBuf,
+    /// the SHELL environment variable passed to the devcontainer. defaults to /bin/bash.
+    #[argh(option, short = 's', default = "String::from(\"/bin/bash\")")]
+    shell: String,
     /// the command to execute.
     #[argh(positional)]
     command: Vec<String>,
@@ -52,11 +55,14 @@ struct ExecArgs {
 
 /// Attach to a devcontainer.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "att")]
+#[argh(subcommand, name = "att", help_triggers("-h", "--help"))]
 struct AttachArgs {
     /// path to the devcontainer local folder.
     #[argh(option, short = 'p', default = "PathBuf::from(\".\")")]
     path: PathBuf,
+    /// the shell to use when attaching. defaults to /bin/bash.
+    #[argh(option, short = 's', default = "String::from(\"/bin/bash\")")]
+    shell: String,
 }
 
 async fn from_path_or_error<'a>(
@@ -97,7 +103,7 @@ async fn main() -> Result<(), Error> {
                 eprintln!("Found: {devcontainer:#}");
             }
             let command: Vec<&str> = exec_args.command.iter().map(String::as_str).collect();
-            devcontainer.exec(command).await?;
+            devcontainer.exec(command, &exec_args.shell).await?;
             if args.verbose {
                 eprintln!("Exited devcontainer at {}", devcontainer.path.display());
             }
@@ -107,7 +113,7 @@ async fn main() -> Result<(), Error> {
             if args.verbose {
                 eprintln!("Found: {devcontainer:#}");
             }
-            devcontainer.attach().await?;
+            devcontainer.attach(&attach_args.shell).await?;
             if args.verbose {
                 eprintln!("Exited devcontainer at {}", devcontainer.path.display());
             }
