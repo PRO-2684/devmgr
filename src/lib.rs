@@ -6,7 +6,7 @@ use bollard::{
     Docker,
     errors::Error,
     exec::{CreateExecOptions, StartExecResults},
-    models::ContainerSummary,
+    models::{ContainerSummary, ContainerSummaryStateEnum},
     query_parameters::{ListContainersOptionsBuilder, ResizeExecOptionsBuilder},
 };
 use futures_util::StreamExt;
@@ -32,6 +32,8 @@ pub struct Devcontainer<'a> {
     pub id: String,
     /// The name of the devcontainer.
     pub name: String,
+    /// If the devcontainer is running.
+    pub running: bool,
     /// The path to the devcontainer. (host)
     pub path: PathBuf,
     /// The workspace folder of the devcontainer. (container)
@@ -45,14 +47,18 @@ pub struct Devcontainer<'a> {
 impl<'a> Devcontainer<'a> {
     // Creation
 
-    /// Iterate over all running devcontainers on the machine.
+    /// Iterate over all devcontainers on the machine.
     ///
     /// # Errors
     ///
     /// Returns an error if the docker client fails to list containers.
-    pub async fn iter(docker: &'a Docker) -> Result<impl Iterator<Item = Self> + 'a, Error> {
+    pub async fn iter(
+        docker: &'a Docker,
+        all: bool,
+    ) -> Result<impl Iterator<Item = Self> + 'a, Error> {
         let filters = HashMap::from([("label", vec!["devcontainer.local_folder"])]);
         let option = ListContainersOptionsBuilder::default()
+            .all(all)
             .filters(&filters)
             .build();
         let containers = docker.list_containers(Some(option)).await?;
@@ -129,6 +135,7 @@ impl<'a> Devcontainer<'a> {
         Some(Self {
             id,
             name,
+            running: container.state == Some(ContainerSummaryStateEnum::RUNNING),
             path,
             workspace,
             user,
@@ -239,7 +246,8 @@ impl fmt::Display for Devcontainer<'_> {
             // Detailed display with newlines and indentation
             write!(
                 f,
-                "Devcontainer {}\n  Name: {}\n  Path: {}\n  Workspace: {}\n  User: {}",
+                "{} Devcontainer {}\n  Name: {}\n  Path: {}\n  Workspace: {}\n  User: {}",
+                if self.running { "🟢" } else { "🔴" },
                 self.id,
                 self.name,
                 self.path.display(),
@@ -248,7 +256,13 @@ impl fmt::Display for Devcontainer<'_> {
             )
         } else {
             // Compact display
-            write!(f, "Devcontainer {} ({})", self.id, self.path.display())
+            write!(
+                f,
+                "{} Devcontainer {} ({})",
+                if self.running { "🟢" } else { "🔴" },
+                self.id,
+                self.path.display()
+            )
         }
     }
 }

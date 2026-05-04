@@ -64,12 +64,12 @@ List all devcontainers on the system verbosely:
 
 ```bash
 $ devmgr -v ls
-Devcontainer ded0cb623184a3068762b34115c776eb480477bd82e5faacf8ef9b772d809018
+🟢 Devcontainer ded0cb623184a3068762b34115c776eb480477bd82e5faacf8ef9b772d809018
   Name: busy_moser
   Path: /home/ubuntu/project1
   Workspace: /workspaces/project1
   User: vscode
-Devcontainer 6bacc965b6654a7b16d0391ffac5df5e9b13964489b6e3395255357274f9a9a4
+🟢 Devcontainer 6bacc965b6654a7b16d0391ffac5df5e9b13964489b6e3395255357274f9a9a4
   Name: thirsty_pasteur
   Path: /home/ubuntu/project2
   Workspace: /workspaces/project2

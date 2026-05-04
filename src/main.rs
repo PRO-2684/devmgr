@@ -24,6 +24,7 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     List(ListArgs),
+    // Info(InfoArgs),
     Exec(ExecArgs),
     Attach(AttachArgs),
 }
@@ -31,7 +32,11 @@ enum Command {
 /// List all devcontainers.
 #[derive(FromArgs)]
 #[argh(subcommand, name = "ls")]
-struct ListArgs {}
+struct ListArgs {
+    /// show all devcontainers, including those that are not running.
+    #[argh(switch, short = 'a')]
+    all: bool,
+}
 
 /// Execute a command in a devcontainer.
 #[derive(FromArgs)]
@@ -73,8 +78,8 @@ async fn main() -> Result<(), Error> {
     let args: Args = argh::from_env();
     let docker = Docker::connect_with_local_defaults()?;
     match args.command {
-        Command::List(_) => {
-            let devcontainers = Devcontainer::iter(&docker).await?;
+        Command::List(list_args) => {
+            let devcontainers = Devcontainer::iter(&docker, list_args.all).await?;
 
             if args.verbose {
                 for devcontainer in devcontainers {
