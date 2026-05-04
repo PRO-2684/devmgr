@@ -38,7 +38,7 @@ Small utility for managing devcontainers.
     - We need to `--show_output`, since `devmgr` allocates TTY.
 
     </details>
-- TODO
+- 💡 Smart: Automatically resolves devcontainer based on current (or specified) directory, and retrieves user and workspace configuration.
 
 ## 📥 Installation
 
