@@ -62,7 +62,7 @@ Execute a command in a devcontainer identified by its path, defaulting to curren
 
 ```bash
 $ devmgr exec -p ./project1 ls
-README.md
+README.md ...
 ```
 
 When you need options, you can specify them after `--`.
@@ -78,6 +78,7 @@ drwxrwxr-x 10 vscode vscode 4096 May  2 02:34 .git
 -rw-r--r--  1 vscode vscode  105 Dec 19 14:52 .gitmodules
 drwxr-xr-x  2 vscode vscode 4096 Mar  7 09:55 .vscode
 -rw-r--r--  1 vscode vscode 2304 May  1 05:43 README.md
+...
 ```
 
 ## 📖 Usage

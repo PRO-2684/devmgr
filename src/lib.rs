@@ -170,6 +170,8 @@ impl<'a> Devcontainer<'a> {
             ..Default::default()
         };
         let exec_id = self.docker.create_exec(&self.id, option).await?.id;
+        let tty_size = terminal_size()?;
+
         let StartExecResults::Attached {
             mut output,
             mut input,
@@ -178,6 +180,22 @@ impl<'a> Devcontainer<'a> {
             // TODO: Error?
             return Ok(());
         };
+
+        // Resize is best-effort: short-lived commands can exit before Docker accepts the resize.
+        if let Err(err) = self
+            .docker
+            .resize_exec(
+                &exec_id,
+                ResizeExecOptionsBuilder::default()
+                    .h(i32::from(tty_size.1))
+                    .w(i32::from(tty_size.0))
+                    .build(),
+            )
+            .await
+            && !is_stopped_exec_resize_error(&err)
+        {
+            return Err(err);
+        }
 
         // pipe stdin into the docker exec stream input
         spawn(async move {
@@ -192,18 +210,6 @@ impl<'a> Devcontainer<'a> {
             }
         });
 
-        // resize the docker exec tty to match the terminal size
-        let tty_size = terminal_size()?;
-        self.docker
-            .resize_exec(
-                &exec_id,
-                ResizeExecOptionsBuilder::default()
-                    .h(i32::from(tty_size.1))
-                    .w(i32::from(tty_size.0))
-                    .build(),
-            )
-            .await?;
-
         // set stdout in raw mode so we can do tty stuff
         let mut stdout = stdout().into_raw_mode()?;
 
@@ -215,6 +221,16 @@ impl<'a> Devcontainer<'a> {
 
         Ok(())
     }
+}
+
+fn is_stopped_exec_resize_error(error: &Error) -> bool {
+    matches!(
+        error,
+        Error::DockerResponseServerError {
+            status_code: 500,
+            message,
+        } if message.contains("cannot resize a stopped container")
+    )
 }
 
 impl fmt::Display for Devcontainer<'_> {
