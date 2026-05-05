@@ -8,9 +8,6 @@
 [![Crates.io Total Downloads](https://img.shields.io/crates/d/devmgr?logo=rust)](https://crates.io/crates/devmgr)
 [![docs.rs](https://img.shields.io/docsrs/devmgr?logo=rust)](https://docs.rs/devmgr)
 
-> [!NOTE]
-> Currently it does not support Windows, because it relies on [`termion`](https://crates.io/crates/termion).
-
 Small utility for managing devcontainers.
 
 ## 🪄 Features

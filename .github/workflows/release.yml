@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        build: [linux, macos]
+        build: [linux, macos, win-msvc]
         include:
           - build: linux
             os: ubuntu-latest
@@ -44,6 +44,10 @@ jobs:
             os: macos-latest
             rust: stable
             target: x86_64-apple-darwin
+          - build: win-msvc
+            os: windows-latest
+            rust: stable
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout repository
@@ -73,9 +77,20 @@ jobs:
           staging="${{ env.BIN_NAME }}-${{ needs.create-release.outputs.release_version }}-${{ matrix.target }}"
           mkdir -p "$staging"
           cp {README.md,LICENSE} "$staging/"
-          cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" "$staging/"
-          tar czf "$staging.tar.gz" -C "$staging" .
-          echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}.exe" "$staging/"
+            cd "$staging"
+            7z a "../$staging.zip" .
+            echo "ASSET=$staging.zip" >> $GITHUB_ENV
+          else
+            outdir="./target/${{ env.TARGET_DIR }}/release"
+            staging="${{ env.BIN_NAME }}-${{ needs.create-release.outputs.release_version }}-${{ matrix.target }}"
+            mkdir -p "$staging"
+            cp {README.md,LICENSE} "$staging/"
+            cp "target/${{ matrix.target }}/release/${{ env.BIN_NAME }}" "$staging/"
+            tar czf "$staging.tar.gz" -C "$staging" .
+            echo "ASSET=$staging.tar.gz" >> $GITHUB_ENV
+          fi
       - name: Upload release archive
         uses: actions/upload-release-asset@v1.0.2
         env:
