@@ -200,7 +200,7 @@ impl<'a> Devcontainer<'a> {
         }
 
         let _raw_mode = RawMode::enable()?;
-        let _bracketed_paste = BracketedPaste::enable()?;
+        let _bracketed_paste = BracketedPaste::enable();
         let mut terminal_events = EventStream::new();
         let mut stdout = stdout();
 
@@ -262,18 +262,22 @@ impl Drop for RawMode {
     }
 }
 
-struct BracketedPaste;
+struct BracketedPaste {
+    enabled: bool,
+}
 
 impl BracketedPaste {
-    fn enable() -> std::io::Result<Self> {
-        execute!(stdout(), EnableBracketedPaste)?;
-        Ok(Self)
+    fn enable() -> Self {
+        let enabled = execute!(stdout(), EnableBracketedPaste).is_ok();
+        Self { enabled }
     }
 }
 
 impl Drop for BracketedPaste {
     fn drop(&mut self) {
-        let _ = execute!(stdout(), DisableBracketedPaste);
+        if self.enabled {
+            let _ = execute!(stdout(), DisableBracketedPaste);
+        }
     }
 }
 
@@ -295,19 +299,49 @@ async fn resize_exec_tty(
 }
 
 fn key_event_bytes(key: KeyEvent) -> Option<Vec<u8>> {
-    let modifiers = key.modifiers;
+    TerminalInput::from_key_event(key).map(TerminalInput::into_bytes)
+}
+
+enum TerminalInput {
+    Bytes(Vec<u8>),
+    Csi { parameters: String, final_byte: u8 },
+    Ss3(u8),
+}
+
+// Crossterm normalizes platform-specific keyboard input into KeyEvent values,
+// but Docker's TTY stream still expects terminal input bytes for the container.
+// Keep that translation small and local to this adapter.
+impl TerminalInput {
+    fn from_key_event(key: KeyEvent) -> Option<Self> {
+        let modifiers = key.modifiers;
+
+        special_key_input(key.code, modifiers).or_else(|| character_input(key.code, modifiers))
+    }
+
+    fn into_bytes(self) -> Vec<u8> {
+        match self {
+            Self::Bytes(bytes) => bytes,
+            Self::Csi {
+                parameters,
+                final_byte,
+            } => csi_sequence(&parameters, final_byte),
+            Self::Ss3(final_byte) => vec![ESC, b'O', final_byte],
+        }
+    }
+}
+
+const ESC: u8 = 0x1b;
+const DEL: u8 = 0x7f;
+
+fn character_input(code: KeyCode, modifiers: KeyModifiers) -> Option<TerminalInput> {
     let mut bytes = Vec::new();
 
-    if let Some(bytes) = special_key_bytes(key.code, modifiers) {
-        return Some(bytes);
-    }
-
     if modifiers.contains(KeyModifiers::ALT) {
-        bytes.push(0x1b);
+        bytes.push(ESC);
     }
 
-    match key.code {
-        KeyCode::Backspace => bytes.push(0x7f),
+    match code {
+        KeyCode::Backspace => bytes.push(DEL),
         KeyCode::Enter => bytes.push(b'\r'),
         KeyCode::Tab => bytes.push(b'\t'),
         KeyCode::Char(char) if modifiers.contains(KeyModifiers::CONTROL) => {
@@ -317,7 +351,7 @@ fn key_event_bytes(key: KeyEvent) -> Option<Vec<u8>> {
             let mut buf = [0; 4];
             bytes.extend_from_slice(char.encode_utf8(&mut buf).as_bytes());
         }
-        KeyCode::Esc => bytes.push(0x1b),
+        KeyCode::Esc => bytes.push(ESC),
         KeyCode::Null
         | KeyCode::CapsLock
         | KeyCode::ScrollLock
@@ -342,29 +376,34 @@ fn key_event_bytes(key: KeyEvent) -> Option<Vec<u8>> {
         | KeyCode::Modifier(_) => return None,
     }
 
-    Some(bytes)
+    Some(TerminalInput::Bytes(bytes))
 }
 
-fn special_key_bytes(code: KeyCode, modifiers: KeyModifiers) -> Option<Vec<u8>> {
+fn special_key_input(code: KeyCode, modifiers: KeyModifiers) -> Option<TerminalInput> {
     let modifier_number = key_modifier_number(modifiers);
 
     if let Some(final_byte) = match code {
-        KeyCode::Left => Some('D'),
-        KeyCode::Right => Some('C'),
-        KeyCode::Up => Some('A'),
-        KeyCode::Down => Some('B'),
-        KeyCode::Home => Some('H'),
-        KeyCode::End => Some('F'),
+        KeyCode::Left => Some(b'D'),
+        KeyCode::Right => Some(b'C'),
+        KeyCode::Up => Some(b'A'),
+        KeyCode::Down => Some(b'B'),
+        KeyCode::Home => Some(b'H'),
+        KeyCode::End => Some(b'F'),
         _ => None,
     } {
-        return Some(modifier_number.map_or_else(
-            || format!("\x1b[{final_byte}").into_bytes(),
-            |number| format!("\x1b[1;{number}{final_byte}").into_bytes(),
-        ));
+        return Some(TerminalInput::Csi {
+            parameters: modifier_number.map_or_else(String::new, |modifier_number| {
+                format!("1;{modifier_number}")
+            }),
+            final_byte,
+        });
     }
 
     if code == KeyCode::BackTab {
-        return Some(b"\x1b[Z".to_vec());
+        return Some(TerminalInput::Csi {
+            parameters: String::new(),
+            final_byte: b'Z',
+        });
     }
 
     let number = match code {
@@ -380,13 +419,24 @@ fn special_key_bytes(code: KeyCode, modifiers: KeyModifiers) -> Option<Vec<u8>> 
         KeyCode::F(10) => 21,
         KeyCode::F(11) => 23,
         KeyCode::F(12) => 24,
-        _ => return function_key_bytes(code),
+        _ => return function_key_input(code),
     };
 
-    Some(modifier_number.map_or_else(
-        || format!("\x1b[{number}~").into_bytes(),
-        |modifier_number| format!("\x1b[{number};{modifier_number}~").into_bytes(),
-    ))
+    Some(TerminalInput::Csi {
+        parameters: modifier_number.map_or_else(
+            || number.to_string(),
+            |modifier_number| format!("{number};{modifier_number}"),
+        ),
+        final_byte: b'~',
+    })
+}
+
+fn csi_sequence(parameters: &str, final_byte: u8) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(parameters.len() + 3);
+    bytes.extend_from_slice(&[ESC, b'[']);
+    bytes.extend_from_slice(parameters.as_bytes());
+    bytes.push(final_byte);
+    bytes
 }
 
 fn key_modifier_number(modifiers: KeyModifiers) -> Option<u8> {
@@ -409,23 +459,23 @@ const fn control_char_byte(char: char) -> Option<u8> {
     match char {
         'a'..='z' => Some(char as u8 - b'a' + 1),
         'A'..='Z' => Some(char as u8 - b'A' + 1),
-        '[' | '3' => Some(0x1b),
+        '[' | '3' => Some(ESC),
         '\\' | '4' => Some(0x1c),
         ']' | '5' => Some(0x1d),
         '^' | '6' => Some(0x1e),
         '_' | '7' | '/' => Some(0x1f),
-        '8' | '?' => Some(0x7f),
+        '8' | '?' => Some(DEL),
         ' ' | '2' | '@' => Some(0),
         _ => None,
     }
 }
 
-fn function_key_bytes(code: KeyCode) -> Option<Vec<u8>> {
+const fn function_key_input(code: KeyCode) -> Option<TerminalInput> {
     match code {
-        KeyCode::F(1) => Some(b"\x1bOP".to_vec()),
-        KeyCode::F(2) => Some(b"\x1bOQ".to_vec()),
-        KeyCode::F(3) => Some(b"\x1bOR".to_vec()),
-        KeyCode::F(4) => Some(b"\x1bOS".to_vec()),
+        KeyCode::F(1) => Some(TerminalInput::Ss3(b'P')),
+        KeyCode::F(2) => Some(TerminalInput::Ss3(b'Q')),
+        KeyCode::F(3) => Some(TerminalInput::Ss3(b'R')),
+        KeyCode::F(4) => Some(TerminalInput::Ss3(b'S')),
         _ => None,
     }
 }
@@ -473,4 +523,47 @@ impl fmt::Display for Devcontainer<'_> {
 struct DevcontainerMetadata {
     /// The user to use in the devcontainer.
     pub remote_user: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    use super::key_event_bytes;
+
+    #[test]
+    fn text_keys_are_forwarded_as_utf8() {
+        assert_eq!(
+            key_event_bytes(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)),
+            Some(vec![b'a'])
+        );
+        assert_eq!(
+            key_event_bytes(KeyEvent::new(KeyCode::Char('é'), KeyModifiers::NONE)),
+            Some("é".as_bytes().to_vec())
+        );
+    }
+
+    #[test]
+    fn control_keys_are_forwarded_as_control_bytes() {
+        assert_eq!(
+            key_event_bytes(KeyEvent::new(KeyCode::Char('c'), KeyModifiers::CONTROL)),
+            Some(vec![3])
+        );
+        assert_eq!(
+            key_event_bytes(KeyEvent::new(KeyCode::Char('['), KeyModifiers::CONTROL)),
+            Some(vec![0x1b])
+        );
+    }
+
+    #[test]
+    fn navigation_keys_are_forwarded_as_terminal_input_sequences() {
+        assert_eq!(
+            key_event_bytes(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE)),
+            Some(vec![0x1b, b'[', b'D'])
+        );
+        assert_eq!(
+            key_event_bytes(KeyEvent::new(KeyCode::Delete, KeyModifiers::CONTROL)),
+            Some(b"\x1b[3;5~".to_vec())
+        );
+    }
 }
