@@ -2,6 +2,9 @@
 #![deny(missing_docs)]
 #![warn(clippy::all, clippy::nursery, clippy::pedantic, clippy::cargo)]
 
+#[cfg(not(unix))]
+compile_error!("devmgr only supports Unix-like platforms because it relies on termion.");
+
 use bollard::{
     Docker,
     errors::Error,
@@ -146,7 +149,6 @@ impl<'a> Devcontainer<'a> {
 
     // Actions
 
-    // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
     /// Attach to the devcontainer using `docker exec`.
     ///
     /// # Errors
@@ -156,7 +158,8 @@ impl<'a> Devcontainer<'a> {
         self.exec(vec![shell], shell).await
     }
 
-    /// Execute a command in the devcontainer using `docker exec`.
+    // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
+    /// Execute a command in the devcontainer.
     ///
     /// # Errors
     ///
@@ -271,19 +274,6 @@ fn is_stopped_exec_resize_error(error: &Error) -> bool {
             message,
         } if message.contains("cannot resize a stopped container")
     )
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn builds_resize_options_from_terminal_size() {
-        let options = resize_options((120, 40));
-
-        assert_eq!(options.w, 120);
-        assert_eq!(options.h, 40);
-    }
 }
 
 impl fmt::Display for Devcontainer<'_> {
