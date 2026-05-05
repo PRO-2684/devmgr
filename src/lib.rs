@@ -16,12 +16,14 @@ use std::{
     collections::HashMap,
     env::var as env_var,
     fmt,
-    io::{Error as IoError, ErrorKind as IoErrorKind, Write, stdout},
+    io::{Error as IoError, ErrorKind as IoErrorKind, Read, Write, stdout},
     path::{Path, PathBuf},
+    thread,
     time::Duration,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, stdin},
+    io::AsyncWriteExt,
+    sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel},
     time::{MissedTickBehavior, interval},
 };
 
@@ -192,8 +194,7 @@ impl<'a> Devcontainer<'a> {
         resize_exec_tty(self.docker, &exec_id, tty_size.0, tty_size.1).await?;
 
         let _raw_mode = RawMode::enable()?;
-        let mut stdin = stdin();
-        let mut stdin_buffer = [0; 1024];
+        let mut stdin = spawn_stdin_reader();
         let mut stdin_open = true;
         let mut stdout = stdout();
         let mut current_tty_size = tty_size;
@@ -210,12 +211,20 @@ impl<'a> Devcontainer<'a> {
                     stdout.write_all(output.into_bytes().as_ref())?;
                     stdout.flush()?;
                 },
-                stdin_read = stdin.read(&mut stdin_buffer), if stdin_open => {
-                    let read = stdin_read?;
-                    if read == 0 {
-                        stdin_open = false;
-                    } else {
-                        input.write_all(&stdin_buffer[..read]).await?;
+                stdin_bytes = stdin.recv(), if stdin_open => {
+                    match stdin_bytes {
+                        Some(Ok(bytes)) if bytes.is_empty() => {
+                            stdin_open = false;
+                        }
+                        Some(Ok(bytes)) => {
+                            input.write_all(&bytes).await?;
+                        }
+                        Some(Err(err)) => {
+                            return Err(err.into());
+                        }
+                        None => {
+                            stdin_open = false;
+                        }
                     }
                 },
                 _ = resize_poll.tick() => {
@@ -235,6 +244,35 @@ impl<'a> Devcontainer<'a> {
         }
 
         Ok(())
+    }
+}
+
+fn spawn_stdin_reader() -> UnboundedReceiver<std::io::Result<Vec<u8>>> {
+    let (sender, receiver) = unbounded_channel();
+    thread::spawn(move || read_stdin(&sender));
+    receiver
+}
+
+fn read_stdin(sender: &UnboundedSender<std::io::Result<Vec<u8>>>) {
+    let mut stdin = std::io::stdin();
+    let mut buffer = [0; 1024];
+
+    loop {
+        match stdin.read(&mut buffer) {
+            Ok(0) => {
+                let _ = sender.send(Ok(Vec::new()));
+                break;
+            }
+            Ok(read) => {
+                if sender.send(Ok(buffer[..read].to_vec())).is_err() {
+                    break;
+                }
+            }
+            Err(err) => {
+                let _ = sender.send(Err(err));
+                break;
+            }
+        }
     }
 }
 
@@ -278,9 +316,8 @@ async fn resize_exec_tty(
         ) {
             // Ignore the error if the exec session has already stopped
             return Ok(());
-        } else {
-            return Err(err);
         }
+        return Err(err);
     }
     Ok(())
 }
