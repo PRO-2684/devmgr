@@ -9,15 +9,8 @@ use bollard::{
     models::{ContainerSummary, ContainerSummaryStateEnum},
     query_parameters::{ListContainersOptionsBuilder, ResizeExecOptionsBuilder},
 };
-use crossterm::{
-    event::{
-        DisableBracketedPaste, EnableBracketedPaste, Event, EventStream, KeyCode, KeyEvent,
-        KeyEventKind, KeyModifiers,
-    },
-    execute,
-    terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size},
-};
-use futures_util::{FutureExt, StreamExt, select};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, size as terminal_size};
+use futures_util::StreamExt;
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -25,8 +18,12 @@ use std::{
     fmt,
     io::{Error as IoError, ErrorKind as IoErrorKind, Write, stdout},
     path::{Path, PathBuf},
+    time::Duration,
 };
-use tokio::io::AsyncWriteExt;
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, stdin},
+    time::{MissedTickBehavior, interval},
+};
 
 /// A devcontainer.
 #[derive(Debug, Clone)]
@@ -200,16 +197,17 @@ impl<'a> Devcontainer<'a> {
         }
 
         let _raw_mode = RawMode::enable()?;
-        let _bracketed_paste = BracketedPaste::enable()?;
-        let mut terminal_events = EventStream::new();
+        let mut stdin = stdin();
+        let mut stdin_buffer = [0; 1024];
+        let mut stdin_open = true;
         let mut stdout = stdout();
+        let mut current_tty_size = tty_size;
+        let mut resize_poll = interval(Duration::from_millis(500));
+        resize_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
-            let mut docker_output = output.next().fuse();
-            let mut terminal_event = terminal_events.next().fuse();
-
-            select! {
-                docker_output = docker_output => {
+            tokio::select! {
+                docker_output = output.next() => {
                     let Some(output) = docker_output else {
                         break;
                     };
@@ -217,27 +215,29 @@ impl<'a> Devcontainer<'a> {
                     stdout.write_all(output.into_bytes().as_ref())?;
                     stdout.flush()?;
                 },
-                terminal_event = terminal_event => {
-                    let Some(event) = terminal_event else {
-                        break;
-                    };
-                    match event? {
-                        Event::Key(key) if key.kind == KeyEventKind::Press || key.kind == KeyEventKind::Repeat => {
-                            if let Some(bytes) = key_event_bytes(key) {
-                                input.write_all(&bytes).await?;
-                            }
+                stdin_read = stdin.read(&mut stdin_buffer), if stdin_open => {
+                    let read = stdin_read?;
+                    if read == 0 {
+                        stdin_open = false;
+                    } else {
+                        input.write_all(&stdin_buffer[..read]).await?;
+                    }
+                },
+                _ = resize_poll.tick() => {
+                    let tty_size = terminal_size()?;
+                    if tty_size != current_tty_size {
+                        current_tty_size = tty_size;
+                        if let Err(err) = resize_exec_tty(
+                            self.docker,
+                            &exec_id,
+                            current_tty_size.0,
+                            current_tty_size.1,
+                        )
+                        .await
+                            && !is_stopped_exec_resize_error(&err)
+                        {
+                            return Err(err);
                         }
-                        Event::Paste(text) => {
-                            input.write_all(text.as_bytes()).await?;
-                        }
-                        Event::Resize(columns, rows) => {
-                            if let Err(err) = resize_exec_tty(self.docker, &exec_id, columns, rows).await
-                                && !is_stopped_exec_resize_error(&err)
-                            {
-                                return Err(err);
-                            }
-                        }
-                        _ => {}
                     }
                 },
             }
@@ -262,21 +262,6 @@ impl Drop for RawMode {
     }
 }
 
-struct BracketedPaste;
-
-impl BracketedPaste {
-    fn enable() -> std::io::Result<Self> {
-        execute!(stdout(), EnableBracketedPaste)?;
-        Ok(Self)
-    }
-}
-
-impl Drop for BracketedPaste {
-    fn drop(&mut self) {
-        let _ = execute!(stdout(), DisableBracketedPaste);
-    }
-}
-
 async fn resize_exec_tty(
     docker: &Docker,
     exec_id: &str,
@@ -292,142 +277,6 @@ async fn resize_exec_tty(
                 .build(),
         )
         .await
-}
-
-fn key_event_bytes(key: KeyEvent) -> Option<Vec<u8>> {
-    let modifiers = key.modifiers;
-    let mut bytes = Vec::new();
-
-    if let Some(bytes) = special_key_bytes(key.code, modifiers) {
-        return Some(bytes);
-    }
-
-    if modifiers.contains(KeyModifiers::ALT) {
-        bytes.push(0x1b);
-    }
-
-    match key.code {
-        KeyCode::Backspace => bytes.push(0x7f),
-        KeyCode::Enter => bytes.push(b'\r'),
-        KeyCode::Tab => bytes.push(b'\t'),
-        KeyCode::Char(char) if modifiers.contains(KeyModifiers::CONTROL) => {
-            bytes.push(control_char_byte(char)?);
-        }
-        KeyCode::Char(char) => {
-            let mut buf = [0; 4];
-            bytes.extend_from_slice(char.encode_utf8(&mut buf).as_bytes());
-        }
-        KeyCode::Esc => bytes.push(0x1b),
-        KeyCode::Null
-        | KeyCode::CapsLock
-        | KeyCode::ScrollLock
-        | KeyCode::NumLock
-        | KeyCode::PrintScreen
-        | KeyCode::Pause
-        | KeyCode::Menu
-        | KeyCode::Left
-        | KeyCode::Right
-        | KeyCode::Up
-        | KeyCode::Down
-        | KeyCode::Home
-        | KeyCode::End
-        | KeyCode::PageUp
-        | KeyCode::PageDown
-        | KeyCode::BackTab
-        | KeyCode::Delete
-        | KeyCode::Insert
-        | KeyCode::F(_)
-        | KeyCode::KeypadBegin
-        | KeyCode::Media(_)
-        | KeyCode::Modifier(_) => return None,
-    }
-
-    Some(bytes)
-}
-
-fn special_key_bytes(code: KeyCode, modifiers: KeyModifiers) -> Option<Vec<u8>> {
-    let modifier_number = key_modifier_number(modifiers);
-
-    if let Some(final_byte) = match code {
-        KeyCode::Left => Some('D'),
-        KeyCode::Right => Some('C'),
-        KeyCode::Up => Some('A'),
-        KeyCode::Down => Some('B'),
-        KeyCode::Home => Some('H'),
-        KeyCode::End => Some('F'),
-        _ => None,
-    } {
-        return Some(modifier_number.map_or_else(
-            || format!("\x1b[{final_byte}").into_bytes(),
-            |number| format!("\x1b[1;{number}{final_byte}").into_bytes(),
-        ));
-    }
-
-    if code == KeyCode::BackTab {
-        return Some(b"\x1b[Z".to_vec());
-    }
-
-    let number = match code {
-        KeyCode::Insert => 2,
-        KeyCode::Delete => 3,
-        KeyCode::PageUp => 5,
-        KeyCode::PageDown => 6,
-        KeyCode::F(5) => 15,
-        KeyCode::F(6) => 17,
-        KeyCode::F(7) => 18,
-        KeyCode::F(8) => 19,
-        KeyCode::F(9) => 20,
-        KeyCode::F(10) => 21,
-        KeyCode::F(11) => 23,
-        KeyCode::F(12) => 24,
-        _ => return function_key_bytes(code),
-    };
-
-    Some(modifier_number.map_or_else(
-        || format!("\x1b[{number}~").into_bytes(),
-        |modifier_number| format!("\x1b[{number};{modifier_number}~").into_bytes(),
-    ))
-}
-
-fn key_modifier_number(modifiers: KeyModifiers) -> Option<u8> {
-    let mut number = 1;
-
-    if modifiers.contains(KeyModifiers::SHIFT) {
-        number += 1;
-    }
-    if modifiers.contains(KeyModifiers::ALT) {
-        number += 2;
-    }
-    if modifiers.contains(KeyModifiers::CONTROL) {
-        number += 4;
-    }
-
-    (number > 1).then_some(number)
-}
-
-const fn control_char_byte(char: char) -> Option<u8> {
-    match char {
-        'a'..='z' => Some(char as u8 - b'a' + 1),
-        'A'..='Z' => Some(char as u8 - b'A' + 1),
-        '[' | '3' => Some(0x1b),
-        '\\' | '4' => Some(0x1c),
-        ']' | '5' => Some(0x1d),
-        '^' | '6' => Some(0x1e),
-        '_' | '7' | '/' => Some(0x1f),
-        '8' | '?' => Some(0x7f),
-        ' ' | '2' | '@' => Some(0),
-        _ => None,
-    }
-}
-
-fn function_key_bytes(code: KeyCode) -> Option<Vec<u8>> {
-    match code {
-        KeyCode::F(1) => Some(b"\x1bOP".to_vec()),
-        KeyCode::F(2) => Some(b"\x1bOQ".to_vec()),
-        KeyCode::F(3) => Some(b"\x1bOR".to_vec()),
-        KeyCode::F(4) => Some(b"\x1bOS".to_vec()),
-        _ => None,
-    }
 }
 
 fn is_stopped_exec_resize_error(error: &Error) -> bool {
