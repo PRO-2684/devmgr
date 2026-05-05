@@ -189,12 +189,7 @@ impl<'a> Devcontainer<'a> {
             return Ok(());
         };
 
-        // Resize is best-effort: short-lived commands can exit before Docker accepts the resize.
-        if let Err(err) = resize_exec_tty(self.docker, &exec_id, tty_size.0, tty_size.1).await
-            && !is_stopped_exec_resize_error(&err)
-        {
-            return Err(err);
-        }
+        resize_exec_tty(self.docker, &exec_id, tty_size.0, tty_size.1).await?;
 
         let _raw_mode = RawMode::enable()?;
         let mut stdin = stdin();
@@ -202,7 +197,7 @@ impl<'a> Devcontainer<'a> {
         let mut stdin_open = true;
         let mut stdout = stdout();
         let mut current_tty_size = tty_size;
-        let mut resize_poll = interval(Duration::from_millis(500));
+        let mut resize_poll = interval(Duration::from_millis(100));
         resize_poll.set_missed_tick_behavior(MissedTickBehavior::Skip);
 
         loop {
@@ -227,17 +222,13 @@ impl<'a> Devcontainer<'a> {
                     let tty_size = terminal_size()?;
                     if tty_size != current_tty_size {
                         current_tty_size = tty_size;
-                        if let Err(err) = resize_exec_tty(
+                        resize_exec_tty(
                             self.docker,
                             &exec_id,
                             current_tty_size.0,
                             current_tty_size.1,
                         )
-                        .await
-                            && !is_stopped_exec_resize_error(&err)
-                        {
-                            return Err(err);
-                        }
+                        .await?;
                     }
                 },
             }
@@ -268,7 +259,7 @@ async fn resize_exec_tty(
     columns: u16,
     rows: u16,
 ) -> Result<(), Error> {
-    docker
+    let result = docker
         .resize_exec(
             exec_id,
             ResizeExecOptionsBuilder::default()
@@ -276,17 +267,22 @@ async fn resize_exec_tty(
                 .w(i32::from(columns))
                 .build(),
         )
-        .await
-}
-
-fn is_stopped_exec_resize_error(error: &Error) -> bool {
-    matches!(
-        error,
-        Error::DockerResponseServerError {
-            status_code: 500,
-            message,
-        } if message.contains("cannot resize a stopped container")
-    )
+        .await;
+    if let Err(err) = result {
+        if matches!(
+            &err,
+            Error::DockerResponseServerError {
+                status_code: 500,
+                message,
+            } if message.contains("cannot resize a stopped container")
+        ) {
+            // Ignore the error if the exec session has already stopped
+            return Ok(());
+        } else {
+            return Err(err);
+        }
+    }
+    Ok(())
 }
 
 impl fmt::Display for Devcontainer<'_> {
