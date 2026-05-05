@@ -22,6 +22,7 @@ use termion::{async_stdin, raw::IntoRawMode, terminal_size};
 use tokio::{
     io::AsyncWriteExt,
     spawn,
+    task::JoinHandle,
     time::{Duration, sleep},
 };
 
@@ -178,7 +179,7 @@ impl<'a> Devcontainer<'a> {
             ..Default::default()
         };
         let exec_id = self.docker.create_exec(&self.id, option).await?.id;
-        let tty_size = terminal_size()?;
+        let resize_handler = spawn_terminal_resize_handler(self.docker.clone(), exec_id.clone());
 
         let StartExecResults::Attached {
             mut output,
@@ -190,18 +191,10 @@ impl<'a> Devcontainer<'a> {
         };
 
         // Resize is best-effort: short-lived commands can exit before Docker accepts the resize.
-        if let Err(err) = self
-            .docker
-            .resize_exec(
-                &exec_id,
-                ResizeExecOptionsBuilder::default()
-                    .h(i32::from(tty_size.1))
-                    .w(i32::from(tty_size.0))
-                    .build(),
-            )
-            .await
+        if let Err(err) = resize_exec_to_terminal(self.docker, &exec_id).await
             && !is_stopped_exec_resize_error(&err)
         {
+            resize_handler.abort();
             return Err(err);
         }
 
@@ -227,8 +220,47 @@ impl<'a> Devcontainer<'a> {
             stdout.flush()?;
         }
 
+        resize_handler.abort();
         Ok(())
     }
+}
+
+fn resize_options((width, height): (u16, u16)) -> bollard::query_parameters::ResizeExecOptions {
+    ResizeExecOptionsBuilder::default()
+        .h(i32::from(height))
+        .w(i32::from(width))
+        .build()
+}
+
+async fn resize_exec_to_terminal(docker: &Docker, exec_id: &str) -> Result<(), Error> {
+    docker
+        .resize_exec(exec_id, resize_options(terminal_size()?))
+        .await
+}
+
+#[cfg(unix)]
+fn spawn_terminal_resize_handler(docker: Docker, exec_id: String) -> JoinHandle<()> {
+    use tokio::signal::unix::{SignalKind, signal};
+
+    spawn(async move {
+        let Ok(mut sigwinch) = signal(SignalKind::window_change()) else {
+            return;
+        };
+
+        while sigwinch.recv().await.is_some() {
+            if let Err(err) = resize_exec_to_terminal(&docker, &exec_id).await {
+                if is_stopped_exec_resize_error(&err) {
+                    break;
+                }
+                eprintln!("failed to resize docker exec tty: {err}");
+            }
+        }
+    })
+}
+
+#[cfg(not(unix))]
+fn spawn_terminal_resize_handler(_docker: Docker, _exec_id: String) -> JoinHandle<()> {
+    spawn(async {})
 }
 
 fn is_stopped_exec_resize_error(error: &Error) -> bool {
@@ -239,6 +271,19 @@ fn is_stopped_exec_resize_error(error: &Error) -> bool {
             message,
         } if message.contains("cannot resize a stopped container")
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builds_resize_options_from_terminal_size() {
+        let options = resize_options((120, 40));
+
+        assert_eq!(options.w, 120);
+        assert_eq!(options.h, 40);
+    }
 }
 
 impl fmt::Display for Devcontainer<'_> {

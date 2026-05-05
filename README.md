@@ -20,7 +20,7 @@ Small utility for managing devcontainers.
 
     - Command: `hyperfine --warmup 3 'devmgr exec -- ls -la' 'docker exec -e TERM="${TERM:-xterm-256color}" -u <user> -w <workspace> -t <container> ls -la' --show-output`
     - Result (output truncated):
-        ```
+        ```text
         Benchmark 1: devmgr exec -- ls -la
           Time (mean ± σ):      46.6 ms ±   3.1 ms    [User: 1.6 ms, System: 1.5 ms]
           Range (min … max):    39.9 ms …  53.7 ms    59 runs
