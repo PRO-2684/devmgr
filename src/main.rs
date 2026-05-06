@@ -24,23 +24,32 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     List(ListArgs),
-    // Info(InfoArgs),
+    Info(InfoArgs),
     Exec(ExecArgs),
     Attach(AttachArgs),
 }
 
 /// List all devcontainers.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "ls", help_triggers("-h", "--help"))]
+#[argh(subcommand, name = "list", short = 'l', help_triggers("-h", "--help"))]
 struct ListArgs {
     /// show all devcontainers, including those that are not running.
     #[argh(switch, short = 'a')]
     all: bool,
 }
 
+/// Show detailed information about a devcontainer.
+#[derive(FromArgs)]
+#[argh(subcommand, name = "info", short = 'i', help_triggers("-h", "--help"))]
+struct InfoArgs {
+    /// path to the devcontainer local folder.
+    #[argh(option, short = 'p', default = "PathBuf::from(\".\")")]
+    path: PathBuf,
+}
+
 /// Execute a command in a devcontainer.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "exec", help_triggers("-h", "--help"))]
+#[argh(subcommand, name = "exec", short = 'e', help_triggers("-h", "--help"))]
 struct ExecArgs {
     /// path to the devcontainer local folder.
     #[argh(option, short = 'p', default = "PathBuf::from(\".\")")]
@@ -55,7 +64,7 @@ struct ExecArgs {
 
 /// Attach to a devcontainer.
 #[derive(FromArgs)]
-#[argh(subcommand, name = "att", help_triggers("-h", "--help"))]
+#[argh(subcommand, name = "att", short = 'a', help_triggers("-h", "--help"))]
 struct AttachArgs {
     /// path to the devcontainer local folder.
     #[argh(option, short = 'p', default = "PathBuf::from(\".\")")]
@@ -96,6 +105,10 @@ async fn main() -> Result<(), Error> {
                     println!("{devcontainer}");
                 }
             }
+        }
+        Command::Info(info_args) => {
+            let devcontainer = from_path_or_error(&docker, &info_args.path).await?;
+            println!("{devcontainer:#}");
         }
         Command::Exec(exec_args) => {
             let devcontainer = from_path_or_error(&docker, &exec_args.path).await?;

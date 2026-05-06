@@ -63,7 +63,7 @@ cargo install devmgr --features=cli
 List all devcontainers on the system verbosely:
 
 ```bash
-$ devmgr -v ls
+$ devmgr -v l # Short for "list"
 🟢 Devcontainer ded0cb623184a3068762b34115c776eb480477bd82e5faacf8ef9b772d809018
   Name: busy_moser
   Path: /home/ubuntu/project1
@@ -79,7 +79,7 @@ $ devmgr -v ls
 Attach to a devcontainer identified by its path, defaulting to current directory:
 
 ```bash
-$ devmgr att -p ./project1
+$ devmgr a -p ./project1 # Short for "att"
 (project1) vscode@host:/workspaces/project1$ whoami
 vscode
 (project1) vscode@host:/workspaces/project1$ exit
@@ -88,14 +88,14 @@ vscode
 Execute a command in a devcontainer identified by its path, defaulting to current directory:
 
 ```bash
-$ devmgr exec -p ./project1 ls
+$ devmgr e -p ./project1 ls # Short for "exec"
 README.md ...
 ```
 
 When you need options, you can specify them after `--`.
 
 ```bash
-$ devmgr exec -p ./project1 -- ls -la
+$ devmgr e -p ./project1 -- ls -la
 total 72
 drwxrwxr-x 12 vscode vscode 4096 May  1 05:19 .
 drwxr-xr-x  3 root   root   4096 Mar  8 13:37 ..
@@ -123,7 +123,8 @@ Options:
   -h, --help        display usage information
 
 Commands:
-  ls                List all devcontainers.
-  exec              Execute a command in a devcontainer.
-  att               Attach to a devcontainer.
+  list  l           List all devcontainers.
+  info  i           Show detailed information about a devcontainer.
+  exec  e           Execute a command in a devcontainer.
+  att  a            Attach to a devcontainer.
 ```
