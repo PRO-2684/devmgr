@@ -9,10 +9,7 @@ use bollard::{
     errors::Error,
     exec::{CreateExecOptions, StartExecResults},
 };
-use std::{
-    env::var as env_var,
-    io::{Error as IoError, ErrorKind},
-};
+use std::{env::var as env_var, io::Error as IoError};
 
 impl Devcontainer<'_> {
     /// Attach to the devcontainer using `docker exec`. Returns status code.
@@ -82,6 +79,6 @@ impl Devcontainer<'_> {
 
 fn io_error(msg: &str) -> Error {
     Error::IOError {
-        err: IoError::new(ErrorKind::Other, msg),
+        err: IoError::other(msg),
     }
 }
