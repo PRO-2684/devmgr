@@ -66,9 +66,11 @@ impl Devcontainer<'_> {
             return Err(err);
         }
 
-        spawn_stdin_pipe(input);
-        forward_output_to_stdout(output).await?;
+        let stdin_handle = spawn_stdin_pipe(input);
+        let result = forward_output_to_stdout(output).await;
+        stdin_handle.abort();
         resize_handler.abort();
+        result?;
 
         // Check status code
         let Some(status) = self.docker.inspect_exec(&exec_id).await?.exit_code else {
