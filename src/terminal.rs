@@ -37,9 +37,14 @@ pub fn spawn_stdin_pipe(mut input: ExecInput) -> JoinHandle<()> {
 pub async fn forward_output_to_stdout(mut output: ExecOutput) -> Result<(), Error> {
     let mut stdout = stdout().into_raw_mode()?;
 
-    while let Some(Ok(output)) = output.next().await {
-        stdout.write_all(output.into_bytes().as_ref())?;
-        stdout.flush()?;
+    while let Some(output) = output.next().await {
+        match output {
+            Ok(output) => {
+                stdout.write_all(output.into_bytes().as_ref())?;
+                stdout.flush()?;
+            }
+            Err(err) => eprintln!("failed to read docker exec output: {err}"),
+        }
     }
 
     Ok(())
@@ -75,11 +80,6 @@ pub fn spawn_terminal_resize_handler(docker: Docker, exec_id: String) -> JoinHan
             }
         }
     })
-}
-
-#[cfg(not(unix))]
-pub fn spawn_terminal_resize_handler(_docker: Docker, _exec_id: String) -> JoinHandle<()> {
-    spawn(async {})
 }
 
 pub fn is_stopped_exec_resize_error(error: &Error) -> bool {
