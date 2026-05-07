@@ -96,7 +96,11 @@ async fn main() -> ExitCode {
             if args.verbose {
                 eprintln!("Exited with code {code}");
             }
-            ExitCode::from(u8::try_from(code).unwrap_or(1))
+            let Ok(code) = u8::try_from(code) else {
+                eprintln!("Exit code {code} is out of range for u8");
+                return ExitCode::FAILURE;
+            };
+            ExitCode::from(code)
         }
         Err(err) => {
             eprintln!("{err}");
