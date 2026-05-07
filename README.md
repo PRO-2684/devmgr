@@ -16,23 +16,21 @@ Small utility for managing devcontainers.
 ## 🪄 Features
 
 - ⚡ Tiny and fast: Less than 2MB binary size. Even faster than `docker` CLI.
-    <details><summary>Benchmark details (commit c858e57)</summary>
+    <details><summary>Benchmark details (commit b11b28c)</summary>
 
     - Command: `hyperfine --warmup 3 'devmgr exec -- ls -la' 'docker exec -e TERM="${TERM:-xterm-256color}" -u <user> -w <workspace> -t <container> ls -la' --show-output`
     - Result (output truncated):
         ```text
         Benchmark 1: devmgr exec -- ls -la
-          Time (mean ± σ):      46.6 ms ±   3.1 ms    [User: 1.6 ms, System: 1.5 ms]
-          Range (min … max):    39.9 ms …  53.7 ms    59 runs
-
+          Time (mean ± σ):      48.6 ms ±   3.7 ms    [User: 1.7 ms, System: 1.8 ms]
+          Range (min … max):    42.8 ms …  62.8 ms    63 runs
 
         Benchmark 2: docker exec -e TERM="${TERM:-xterm-256color}" -u vscode -w /workspaces/project1 -t thirsty_pasteur ls -la
-          Time (mean ± σ):      74.8 ms ±   3.5 ms    [User: 18.6 ms, System: 20.9 ms]
-          Range (min … max):    68.6 ms …  82.9 ms    40 runs
-
+          Time (mean ± σ):      74.6 ms ±   4.2 ms    [User: 20.4 ms, System: 23.6 ms]
+          Range (min … max):    64.4 ms …  82.8 ms    41 runs
         Summary
           devmgr exec -- ls -la ran
-            1.61 ± 0.13 times faster than docker exec -e TERM="${TERM:-xterm-256color}" -u vscode -w /workspaces/project1 -t thirsty_pasteur ls -la
+            1.53 ± 0.15 times faster than docker exec -e TERM="${TERM:-xterm-256color}" -u vscode -w /workspaces/project1 -t thirsty_pasteur ls -la
         ```
     - This is an "unfair" comparison, since `devmgr` have to resolve user, workspace, container name and determine terminal size, but it still outperforms `docker` CLI.
     - We need to `--show_output`, since `devmgr` allocates TTY.
