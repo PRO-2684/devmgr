@@ -9,25 +9,28 @@ use bollard::{
     errors::Error,
     exec::{CreateExecOptions, StartExecResults},
 };
-use std::env::var as env_var;
+use std::{
+    env::var as env_var,
+    io::{Error as IoError, ErrorKind},
+};
 
 impl Devcontainer<'_> {
-    /// Attach to the devcontainer using `docker exec`.
+    /// Attach to the devcontainer using `docker exec`. Returns status code.
     ///
     /// # Errors
     ///
     /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
-    pub async fn attach(&self, shell: &str) -> Result<(), Error> {
+    pub async fn attach(&self, shell: &str) -> Result<i64, Error> {
         self.exec(vec![shell], shell).await
     }
 
     // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
-    /// Execute a command in the devcontainer.
+    /// Execute a command in the devcontainer. Returns status code.
     ///
     /// # Errors
     ///
     /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
-    pub async fn exec(&self, cmd: Vec<&str>, shell: &str) -> Result<(), Error> {
+    pub async fn exec(&self, cmd: Vec<&str>, shell: &str) -> Result<i64, Error> {
         let term = env_var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
         let term = format!("TERM={term}");
         let shell = format!("SHELL={shell}");
@@ -50,8 +53,9 @@ impl Devcontainer<'_> {
         let StartExecResults::Attached { output, input } =
             self.docker.start_exec(&exec_id, None).await?
         else {
-            // TODO: Error?
-            return Ok(());
+            return Err(io_error(
+                "Failed to start exec session: expected attached result",
+            ));
         };
 
         // Resize is best-effort: short-lived commands can exit before Docker accepts the resize.
@@ -64,8 +68,18 @@ impl Devcontainer<'_> {
 
         spawn_stdin_pipe(input);
         forward_output_to_stdout(output).await?;
-
         resize_handler.abort();
-        Ok(())
+
+        // Check status code
+        let Some(status) = self.docker.inspect_exec(&exec_id).await?.exit_code else {
+            return Err(io_error("Command exit code not found"));
+        };
+        Ok(status)
+    }
+}
+
+fn io_error(msg: &str) -> Error {
+    Error::IOError {
+        err: IoError::new(ErrorKind::Other, msg),
     }
 }

@@ -3,6 +3,7 @@
 use std::{
     io::{Error as IoError, ErrorKind},
     path::{Path, PathBuf},
+    process::ExitCode,
 };
 
 use argh::FromArgs;
@@ -78,21 +79,35 @@ async fn from_path_or_error<'a>(
     docker: &'a Docker,
     path: &'a Path,
 ) -> Result<Devcontainer<'a>, Error> {
-    Devcontainer::from_path(docker, path)
-        .await?
-        .ok_or_else(|| Error::IOError {
-            err: IoError::new(
-                ErrorKind::NotFound,
-                "devcontainer not found in the specified path",
-            ),
-        })
+    Devcontainer::from_path(docker, path).await?.ok_or_else(|| {
+        io_error(format!(
+            "devcontainer not found in the specified path: {}",
+            path.display()
+        ))
+    })
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() -> Result<(), Error> {
+async fn main() -> ExitCode {
     let args: Args = argh::from_env();
+    match run(&args).await {
+        Ok(Some(0) | None) => ExitCode::SUCCESS,
+        Ok(Some(code)) => {
+            if args.verbose {
+                eprintln!("Exited with code {code}");
+            }
+            ExitCode::from(u8::try_from(code).unwrap_or(1))
+        }
+        Err(err) => {
+            eprintln!("{err}");
+            ExitCode::FAILURE
+        }
+    }
+}
+
+async fn run(args: &Args) -> Result<Option<i64>, Error> {
     let docker = Docker::connect_with_local_defaults()?;
-    match args.command {
+    let status = match &args.command {
         Command::List(list_args) => {
             let devcontainers = Devcontainer::iter(&docker, list_args.all).await?;
 
@@ -105,10 +120,12 @@ async fn main() -> Result<(), Error> {
                     println!("{devcontainer}");
                 }
             }
+            None
         }
         Command::Info(info_args) => {
             let devcontainer = from_path_or_error(&docker, &info_args.path).await?;
             println!("{devcontainer:#}");
+            None
         }
         Command::Exec(exec_args) => {
             let devcontainer = from_path_or_error(&docker, &exec_args.path).await?;
@@ -116,22 +133,30 @@ async fn main() -> Result<(), Error> {
                 eprintln!("Found: {devcontainer:#}");
             }
             let command: Vec<&str> = exec_args.command.iter().map(String::as_str).collect();
-            devcontainer.exec(command, &exec_args.shell).await?;
+            let status = devcontainer.exec(command, &exec_args.shell).await?;
             if args.verbose {
                 eprintln!("Exited devcontainer at {}", devcontainer.path.display());
             }
+            Some(status)
         }
         Command::Attach(attach_args) => {
             let devcontainer = from_path_or_error(&docker, &attach_args.path).await?;
             if args.verbose {
                 eprintln!("Found: {devcontainer:#}");
             }
-            devcontainer.attach(&attach_args.shell).await?;
+            let status = devcontainer.attach(&attach_args.shell).await?;
             if args.verbose {
                 eprintln!("Exited devcontainer at {}", devcontainer.path.display());
             }
+            Some(status)
         }
-    }
+    };
 
-    Ok(())
+    Ok(status)
+}
+
+fn io_error(msg: String) -> Error {
+    Error::IOError {
+        err: IoError::new(ErrorKind::NotFound, msg),
+    }
 }
