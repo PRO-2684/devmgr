@@ -88,6 +88,6 @@ pub fn is_stopped_exec_resize_error(error: &Error) -> bool {
         Error::DockerResponseServerError {
             status_code: 500,
             message,
-        } if message.contains("Cannot resize a stopped container")
+        } if message.contains("cannot resize a stopped container")
     )
 }
