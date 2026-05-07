@@ -43,7 +43,7 @@ pub async fn forward_output_to_stdout(mut output: ExecOutput) -> Result<(), Erro
                 stdout.write_all(output.into_bytes().as_ref())?;
                 stdout.flush()?;
             }
-            Err(err) => eprintln!("failed to read docker exec output: {err}"),
+            Err(err) => eprintln!("Failed to read docker exec output: {err}"),
         }
     }
 
@@ -76,7 +76,7 @@ pub fn spawn_terminal_resize_handler(docker: Docker, exec_id: String) -> JoinHan
                 if is_stopped_exec_resize_error(&err) {
                     break;
                 }
-                eprintln!("failed to resize docker exec tty: {err}");
+                eprintln!("Failed to resize docker exec tty: {err}");
             }
         }
     })
@@ -88,6 +88,6 @@ pub fn is_stopped_exec_resize_error(error: &Error) -> bool {
         Error::DockerResponseServerError {
             status_code: 500,
             message,
-        } if message.contains("cannot resize a stopped container")
+        } if message.contains("Cannot resize a stopped container")
     )
 }

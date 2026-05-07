@@ -81,7 +81,7 @@ async fn from_path_or_error<'a>(
 ) -> Result<Devcontainer<'a>, Error> {
     Devcontainer::from_path(docker, path).await?.ok_or_else(|| {
         io_error(format!(
-            "devcontainer not found in the specified path: {}",
+            "Devcontainer not found in the specified path: {}",
             path.display()
         ))
     })
