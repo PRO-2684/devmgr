@@ -83,6 +83,13 @@ vscode
 (project1) vscode@host:/workspaces/project1$ exit
 ```
 
+By default, `att` starts the selected shell as a login and interactive shell (`-l -i`).
+You can replace those shell arguments after `--`:
+
+```bash
+$ devmgr a -s /bin/sh -- -i
+```
+
 Execute a command in a devcontainer identified by its path, defaulting to current directory:
 
 ```bash

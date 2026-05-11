@@ -73,6 +73,9 @@ struct AttachArgs {
     /// the shell to use when attaching. defaults to /bin/bash.
     #[argh(option, short = 's', default = "String::from(\"/bin/bash\")")]
     shell: String,
+    /// shell arguments. defaults to -l -i.
+    #[argh(positional)]
+    shell_args: Vec<String>,
 }
 
 async fn from_path_or_error<'a>(
@@ -148,7 +151,8 @@ async fn run(args: &Args) -> Result<Option<i64>, Error> {
             if args.verbose {
                 eprintln!("Found: {devcontainer:#}");
             }
-            let status = devcontainer.attach(&attach_args.shell).await?;
+            let shell_args = attach_shell_args(&attach_args.shell_args);
+            let status = devcontainer.attach(&attach_args.shell, &shell_args).await?;
             if args.verbose {
                 eprintln!("Exited devcontainer at {}", devcontainer.path.display());
             }
@@ -162,5 +166,32 @@ async fn run(args: &Args) -> Result<Option<i64>, Error> {
 fn io_error(msg: String) -> Error {
     Error::IOError {
         err: IoError::new(ErrorKind::NotFound, msg),
+    }
+}
+
+fn attach_shell_args(shell_args: &[String]) -> Vec<&str> {
+    if shell_args.is_empty() {
+        vec!["-l", "-i"]
+    } else {
+        shell_args.iter().map(String::as_str).collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::attach_shell_args;
+
+    #[test]
+    fn attach_shell_args_default_to_login_interactive() {
+        let args: Vec<String> = Vec::new();
+
+        assert_eq!(attach_shell_args(&args), vec!["-l", "-i"]);
+    }
+
+    #[test]
+    fn attach_shell_args_replace_defaults_when_provided() {
+        let args = vec!["--noprofile".to_string(), "-i".to_string()];
+
+        assert_eq!(attach_shell_args(&args), vec!["--noprofile", "-i"]);
     }
 }

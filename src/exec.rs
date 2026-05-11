@@ -17,8 +17,11 @@ impl Devcontainer<'_> {
     /// # Errors
     ///
     /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
-    pub async fn attach(&self, shell: &str) -> Result<i64, Error> {
-        self.exec(vec![shell], shell).await
+    pub async fn attach(&self, shell: &str, shell_args: &[&str]) -> Result<i64, Error> {
+        let mut cmd = Vec::with_capacity(shell_args.len() + 1);
+        cmd.push(shell);
+        cmd.extend_from_slice(shell_args);
+        self.exec(cmd, shell).await
     }
 
     // https://github.com/fussybeaver/bollard/blob/94f4e5388a5fc7dd69db4d8d39cc8e6fa1937760/examples/exec_term.rs
