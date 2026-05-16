@@ -31,9 +31,8 @@ impl Devcontainer<'_> {
     ///
     /// Returns an error if the docker client fails to create or start the exec session, or if there is an I/O error while attaching to the session.
     pub async fn exec(&self, cmd: Vec<&str>, shell: &str) -> Result<i64, Error> {
-        let term = env_var("TERM").unwrap_or_else(|_| "xterm-256color".to_string());
-        let term = format!("TERM={term}");
-        let shell = format!("SHELL={shell}");
+        let env = exec_env(shell);
+        let env: Vec<&str> = env.iter().map(String::as_str).collect();
         let option = CreateExecOptions {
             cmd: Some(cmd),
             attach_stderr: Some(true),
@@ -42,7 +41,7 @@ impl Devcontainer<'_> {
             tty: Some(true),
             user: Some(&self.user),
             working_dir: Some(&self.workspace),
-            env: Some(vec![&term, &shell]),
+            env: Some(env),
             // detach_keys: None,
             // privileged: Some(false),
             ..Default::default()
@@ -83,5 +82,106 @@ impl Devcontainer<'_> {
 fn io_error(msg: &str) -> Error {
     Error::IOError {
         err: IoError::other(msg),
+    }
+}
+
+fn exec_env(shell: &str) -> Vec<String> {
+    exec_env_from(
+        shell,
+        env_var("TERM").ok().as_deref(),
+        env_var("LANG").ok().as_deref(),
+        env_var("LC_CTYPE").ok().as_deref(),
+        env_var("LC_ALL").ok().as_deref(),
+    )
+}
+
+fn exec_env_from(
+    shell: &str,
+    term: Option<&str>,
+    lang: Option<&str>,
+    lc_ctype: Option<&str>,
+    lc_all: Option<&str>,
+) -> Vec<String> {
+    let mut env = vec![
+        format!("TERM={}", term.unwrap_or("xterm-256color")),
+        format!("SHELL={shell}"),
+        format!("LANG={}", utf8_locale_or_default(lang)),
+        format!("LC_CTYPE={}", utf8_locale_or_default(lc_ctype)),
+    ];
+
+    if let Some(lc_all) = lc_all
+        && is_utf8_locale(lc_all)
+    {
+        env.push(format!("LC_ALL={lc_all}"));
+    }
+
+    env
+}
+
+fn utf8_locale_or_default(locale: Option<&str>) -> &str {
+    locale
+        .filter(|locale| is_utf8_locale(locale))
+        .unwrap_or("C.UTF-8")
+}
+
+fn is_utf8_locale(locale: &str) -> bool {
+    let locale = locale.to_ascii_lowercase();
+    locale.contains("utf-8") || locale.contains("utf8")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exec_env_from;
+
+    #[test]
+    fn exec_env_defaults_to_utf8_locale() {
+        assert_eq!(
+            exec_env_from("/bin/bash", None, None, None, None),
+            vec![
+                "TERM=xterm-256color",
+                "SHELL=/bin/bash",
+                "LANG=C.UTF-8",
+                "LC_CTYPE=C.UTF-8",
+            ]
+        );
+    }
+
+    #[test]
+    fn exec_env_preserves_utf8_locale() {
+        assert_eq!(
+            exec_env_from(
+                "/bin/zsh",
+                Some("screen-256color"),
+                Some("zh_CN.UTF-8"),
+                Some("en_US.utf8"),
+                Some("C.UTF-8"),
+            ),
+            vec![
+                "TERM=screen-256color",
+                "SHELL=/bin/zsh",
+                "LANG=zh_CN.UTF-8",
+                "LC_CTYPE=en_US.utf8",
+                "LC_ALL=C.UTF-8",
+            ]
+        );
+    }
+
+    #[test]
+    fn exec_env_replaces_non_utf8_locale() {
+        assert_eq!(
+            exec_env_from(
+                "/bin/sh",
+                Some("xterm"),
+                Some("C"),
+                Some("POSIX"),
+                Some("C"),
+            ),
+            vec![
+                "TERM=xterm",
+                "SHELL=/bin/sh",
+                "LANG=C.UTF-8",
+                "LC_CTYPE=C.UTF-8",
+            ]
+        );
     }
 }
