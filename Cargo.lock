@@ -98,6 +98,7 @@ dependencies = [
  "argh",
  "bollard",
  "futures-util",
+ "osc94",
  "serde",
  "serde_json",
  "termion",
@@ -462,6 +463,12 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
+
+[[package]]
+name = "osc94"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "34f8ab1141a6a07f7a5f7fc5ca6f42770b1024b15d5987a044e853fe3ba8c71a"
 
 [[package]]
 name = "percent-encoding"

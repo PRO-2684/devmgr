@@ -17,7 +17,7 @@ bollard = { version = "0.21.0", default-features = false, features = ["pipe"] }
 futures-util = "0.3.32"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-tokio = { version = "1.52.3", features = ["macros", "rt", "signal"] }
+tokio = { version = "1.52.3", features = ["signal"] }
 
 [target.'cfg(unix)'.dependencies]
 termion = "4.0.6"
@@ -27,13 +27,17 @@ name = "devmgr"
 required-features = ["cli"]
 
 [features]
-cli = []
+cli = ["tokio/macros", "tokio/rt"]
 
 [profile.release]
 debug = false     # Disable debug information in release builds.
 strip = true      # Automatically strip symbols from the binary.
 lto = true        # Enable link-time optimization.
 codegen-units = 1 # Set the number of codegen units to 1.
+
+[dev-dependencies]
+osc94 = "0.1.1"
+tokio = { version = "1.52.3", features = ["macros", "rt"] }
 
 [package.metadata.binstall]
 pkg-url = "{ repo }/releases/download/v{ version }/{ name }-v{ version }-{ target }{ archive-suffix }"

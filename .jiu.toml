@@ -19,6 +19,12 @@ arguments = ["*rest"]
 command = ["cargo", "test", ["*rest"]]
 
 [[recipes]]
+names = ["example", "e"]
+description = "Run \u001b[4me\u001b[24mxample"
+arguments = ["*rest"]
+command = ["cargo", "run", "--example", ["*rest"]]
+
+[[recipes]]
 names = ["version", "v"]
 description = "Set or get \u001b[4mv\u001b[24mersion"
 arguments = ["?version"]

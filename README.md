@@ -16,10 +16,10 @@ Small utility for managing devcontainers.
 ## 🪄 Features
 
 - ⚡ Tiny and fast: Less than 2MB binary size. Even faster than `docker` CLI.
-    <details><summary>Benchmark details (commit b11b28c)</summary>
-
+  <details><summary>Benchmark details (commit b11b28c)</summary>
     - Command: `hyperfine --warmup 3 'devmgr exec -- ls -la' 'docker exec -e TERM="${TERM:-xterm-256color}" -u <user> -w <workspace> -t <container> ls -la' --show-output`
     - Result (output truncated):
+
         ```text
         Benchmark 1: devmgr exec -- ls -la
           Time (mean ± σ):      48.6 ms ±   3.7 ms    [User: 1.7 ms, System: 1.8 ms]
@@ -32,10 +32,12 @@ Small utility for managing devcontainers.
           devmgr exec -- ls -la ran
             1.53 ± 0.15 times faster than docker exec -e TERM="${TERM:-xterm-256color}" -u vscode -w /workspaces/project1 -t thirsty_pasteur ls -la
         ```
+
     - This is an "unfair" comparison, since `devmgr` have to resolve user, workspace, container name and determine terminal size, but it still outperforms `docker` CLI.
     - We need to `--show_output`, since `devmgr` allocates TTY.
 
-    </details>
+        </details>
+
 - 💡 Smart: Automatically resolves devcontainer based on current (or specified) directory, and retrieves user and workspace configuration.
 
 ## 📥 Installation
@@ -112,6 +114,8 @@ drwxr-xr-x  2 vscode vscode 4096 Mar  7 09:55 .vscode
 -rw-r--r--  1 vscode vscode 2304 May  1 05:43 README.md
 ...
 ```
+
+For some examples to test out `devmgr`, you can check out the [examples directory](./examples) in the repository.
 
 ## 📖 Usage
 
