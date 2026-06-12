@@ -10,6 +10,7 @@ use std::{
     fmt,
     io::{Error as IoError, ErrorKind as IoErrorKind},
     path::{Path, PathBuf},
+    str::FromStr,
 };
 
 /// A devcontainer.
@@ -112,8 +113,8 @@ impl<'a> Devcontainer<'a> {
         })?;
 
         let metadata = labels.get("devcontainer.metadata")?;
-        let metadata: DevcontainerMetadata = serde_json::from_str(metadata).ok()?;
-        let user = metadata.remote_user;
+        let metadata = DevcontainerMetadataLabel::from_str(metadata).ok()?;
+        let user = metadata.resolve_remote_user()?;
 
         Some(Self {
             id,
@@ -157,5 +158,66 @@ impl fmt::Display for Devcontainer<'_> {
 #[serde(rename_all = "camelCase")]
 struct DevcontainerMetadata {
     /// The user to use in the devcontainer.
-    pub remote_user: String,
+    pub remote_user: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum DevcontainerMetadataLabel {
+    Object(DevcontainerMetadata),
+    Array(Vec<DevcontainerMetadata>),
+}
+
+impl FromStr for DevcontainerMetadataLabel {
+    type Err = serde_json::Error;
+
+    fn from_str(metadata: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(metadata)
+    }
+}
+
+impl DevcontainerMetadataLabel {
+    fn resolve_remote_user(self) -> Option<String> {
+        match self {
+            Self::Object(metadata) => metadata.remote_user,
+            Self::Array(metadata) => metadata
+                .into_iter()
+                .rev()
+                .find_map(|metadata| metadata.remote_user),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DevcontainerMetadataLabel;
+    use std::str::FromStr;
+
+    #[test]
+    fn metadata_object_provides_remote_user() {
+        let metadata = DevcontainerMetadataLabel::from_str(r#"{"remoteUser":"vscode"}"#).unwrap();
+
+        assert_eq!(metadata.resolve_remote_user(), Some("vscode".to_string()));
+    }
+
+    #[test]
+    fn metadata_array_uses_last_remote_user() {
+        let metadata = DevcontainerMetadataLabel::from_str(
+            r#"[
+                {"remoteUser":"root"},
+                {"customizations":{}},
+                {"remoteUser":"ubuntu"}
+            ]"#,
+        )
+        .unwrap();
+
+        assert_eq!(metadata.resolve_remote_user(), Some("ubuntu".to_string()));
+    }
+
+    #[test]
+    fn metadata_without_remote_user_is_rejected() {
+        let metadata = DevcontainerMetadataLabel::from_str(r#"[{"customizations":{}}]"#).unwrap();
+
+        assert_eq!(metadata.resolve_remote_user(), None);
+    }
 }
